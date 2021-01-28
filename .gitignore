@@ -1,0 +1,11 @@
+/old/*
+/results_wavenet/*
+/results_lstm/*
+/models_keras_final/*
+/models_keras_final_without_guild/*
+/submission/*
+/for_github/*
+/data/*
+/files_river_specific/*
+
+
