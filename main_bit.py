@@ -6,12 +6,17 @@ np.random.seed(7)
 
 from wavenet_model_keras import wavenet_model
 from lstm_model_keras import lstm_model
-from data_loader_bit import DataLoader
-from configs_bit import *
+from data_loader_all_data import DataLoader
+
+#Either import river or bitcoin configs
+#from configs_bit import *
+from configs_river import *
+
 
 def main():
-    data_loader= DataLoader(pred_var, sliding_window, predict_size, input_size, base_path, data_folder, sub_folder, cond_vars_dict)
+    data_loader= DataLoader(pred_var, sliding_window, predict_size, input_size, base_path, data_folder, sub_folder, cond_vars_dict, scaler_vars)
     dataset=data_loader.load_data()
+    #batch dimension not needed, automatically created by keras
     train_x, train_y, val_x, val_y, test_x, test_y = data_loader.split_scale_transform(dataset)
 
     def train_model(model_type, train_x, train_y, val_x, val_y, output_size, epochs, batch_size):
@@ -24,6 +29,7 @@ def main():
         elif model_type == 'LSTM':
             model = lstm_model(hidden_layer_size, lr, dropout, input_size)
             es = EarlyStopping(monitor='val_loss', mode='min', verbose=2, patience=10, min_delta=0.005)
+
         history = model.fit(train_x, train_y , validation_data=(val_x, val_y),
                         batch_size= batch_size ,
                         epochs=epochs, callbacks=[es])
@@ -34,34 +40,30 @@ def main():
         return model, history
 
     if load_model==False:
-        print(epochs)
         model, history= train_model(model_type, train_x, train_y, val_x, val_y, output_size, epochs=epochs, batch_size=batch_size)
         print('Done training.')
         print(history)
-        plot_train_val_loss(history, epochs, base_path, results_folder)
+        plot_train_val_loss(history, epochs, results_folder)
 
 
     # # save model in results folder (can load it from there more easily)
     if save_model == True:
 
-        model_path =  "{}{}{}_tw_{}_nfil{}_b_{}_dil_{}.h5".format(base_path, results_folder , model_type , sliding_window, n_filters, batch_size, num_layers)
+        model_path =  "{}{}{}_tw_{}_nfil{}_b_{}_dil_{}.h5".format(model_type , sliding_window, n_filters, batch_size, num_layers)
         model.save(model_path)
         print('Model saved in ' + model_path)
 
 
     #Generate Predictions, evaluate model
-    yhat = model.predict(test_x)
+    yhat = model.predict(test_x)  #yhat has shape [B, Seq_len, 1 (prediction feature)]
     naive_preds = test_x[:, :, 0:1]
 
     if sliding_window is not False:
-        print(yhat.shape)
-        if yhat.ndim>2:
-            yhat=yhat[:,-1,:]
-        yhat = np.expand_dims(yhat, axis=2)
-        test_y = np.expand_dims(test_y, axis=2)
-        naive_preds = naive_preds[:, -1, :]
-        naive_preds = np.expand_dims(naive_preds, axis=2)
+        naive_preds = naive_preds[:, -1, :] #take the last value of the sliding window
+        naive_preds = np.expand_dims(naive_preds, axis=1)
+        yhat = np.expand_dims(yhat, axis=1)
 
+    print(test_y.shape, yhat.shape, naive_preds.shape, test_x.shape, 'shapes')
     rmse = loss_function(test_y, yhat)
     print("test_loss_scaled: %f" % rmse)
 
@@ -70,37 +72,39 @@ def main():
     print('Test RMSE by evaluation: %.3f' % rmse)
 
     #Evaluate Loss on rescaled data
-
-    #Scale back data, inverse scaler expects array of shape  [samples, timesteps, features]
+    print(yhat.shape , 'shape test pred')
+    #Scale back data, inverse scaler expects array of shape  [samples, timesteps, features], returns [samples, F]
     test_preds = data_loader.scale_back(yhat)
     test_y = data_loader.scale_back(test_y)
     naive_preds= data_loader.scale_back(naive_preds)
 
-
     # calculate RMSE on inverted data, don't use model evaluate as it is not trained on rescaled data.
-    rmse = loss_function(test_y, test_preds)
+    rmse = loss_function(test_y[:,0], test_preds)
     print("test_loss: %f" % rmse)
-    rmse_naive = loss_function(test_y, naive_preds)
+    rmse_naive = loss_function(test_y[:,0], naive_preds)
     print("test_loss_naive: %f" % rmse_naive)
-
 
     perc_rmse_model_to_naive= 1- (rmse/ rmse_naive)
     print("perc_rmse_model_to_naive: %f" % perc_rmse_model_to_naive)
-
-    u2_value= get_u2_value(test_preds,test_y, naive_preds)
+    #
+    u2_value= get_u2_value(test_preds,test_y[:,0], naive_preds)
     print("u2_value: %f" % u2_value)
-    e_value = get_e_value(test_preds, test_y)
+    e_value = get_e_value(test_preds, test_y[:,0])
     print("e_value: %f" % e_value)
 
+    #add the batch dim, would be nicer without this
+    test_y=np.expand_dims(test_y[:,0:1], axis=0)
+    test_preds=np.expand_dims(test_preds, axis=0)
+    naive_preds=np.expand_dims(naive_preds, axis=0)
+
+
     # #Plot Predictions
-    test_preds = np.expand_dims(test_preds, axis=1)# expects testpreds as [x , pred_size, 1] np array
-    plot_predictions(model_type, pred_var, test_y, naive_preds, base_path, results_folder, test_preds, u2_value, perc_rmse_model_to_naive,  test_preds.shape[0],
+    #expects preds as [B, seq_len, 1 (F)]
+    plot_predictions(model_type, pred_var, test_y, naive_preds, results_folder, test_preds, u2_value, test_preds.shape[0],
                                  predict_size ,  len_preds='all', sliding_window=sliding_window)  #predict size for multi-step predictions
 
-    # plot_predictions(model_type, pred_var, test_y, naive_preds, base_path, results_folder, test_preds, u2_value, perc_rmse_model_to_naive,  test_preds.shape[0],
-    #                              predict_size,  len_preds=100 , sliding_window=sliding_window)
-    #
-    # plot_predictions(model_type, pred_var, test_y, naive_preds, base_path, results_folder, test_preds, u2_value, perc_rmse_model_to_naive,  test_preds.shape[0],
+
+    # plot_predictions(model_type, pred_var, test_y, naive_preds, results_folder, test_preds, u2_value,  test_preds.shape[0],
     #                              predict_size,  len_preds=250 , sliding_window=sliding_window)
 
 

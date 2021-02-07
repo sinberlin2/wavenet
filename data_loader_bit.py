@@ -64,7 +64,7 @@ def combine_data(main_df, cond_df):
 
 
 class DataLoader(object):
-    def __init__(self, pred_var, sliding_window, predict_size, input_size, base_path, data_folder, sub_folder, cond_vars):
+    def __init__(self, pred_var, sliding_window, predict_size, input_size, base_path, data_folder, sub_folder, cond_vars, scaler_vars):
         """
         :param xs:
         :param ys:
@@ -171,17 +171,13 @@ class DataLoader(object):
         print(self.scaler_index)
         scaler_no=0
         for i in range(data.shape[1]):
-            if i ==0:
-                data_scaled =((eval(self.scaler_name[scaler_no])).transform(data[:, self.scaler_index[self.scaler_name[scaler_no]]].reshape(-1, 1)))
+            if i in self.scaler_index.values():
+                data_scaled =eval(self.scaler_name[scaler_no]).transform(data[:, self.scaler_index[self.scaler_name[scaler_no]]].reshape(-1, 1))
                 output =  data_scaled
                 scaler_no+=1
-            elif i not in self.scaler_index.values():
+            else:
                 data_scaled=data[:,i].reshape(-1, 1)
                 output = np.hstack((output, data_scaled))  # hstack means stack along second axis
-            else:
-                data_scaled =(eval(self.scaler_name[scaler_no]).transform(data[:, self.scaler_index[self.scaler_name[scaler_no]]].reshape(-1, 1)))
-                output = np.hstack((output, data_scaled))  # hstack means stack along second axis
-                scaler_no+=1
 
         return output
 
@@ -211,6 +207,7 @@ class DataLoader(object):
         data_x, data_y = input_data_normalised[:x_len], input_data_normalised[1:,0:1]  # keep only prediction variable for y
         data_x = np.expand_dims(data_x, axis=0)
         data_y = np.expand_dims(data_y, axis=0)
+        print(data_x.shape)
         return data_x, data_y
 
     def split_scale_transform(self, dataset):
